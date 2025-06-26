@@ -1,0 +1,125 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: NestJS Blog API with AWS Aurora and GitHub integration
+
+Globals:
+  Function:
+    Timeout: 30
+    Runtime: nodejs18.x
+    Environment:
+      Variables:
+        NODE_ENV: production
+
+Parameters:
+  DatabaseUrl:
+    Type: String
+    Description: Database connection URL
+    NoEcho: true
+  DatabaseWriteUrl:
+    Type: String
+    Description: Database write connection URL
+    NoEcho: true
+  DatabaseReadUrl:
+    Type: String
+    Description: Database read connection URL
+    NoEcho: true
+  GithubUsername:
+    Type: String
+    Description: GitHub username
+    Default: "Tikous"
+  GithubToken:
+    Type: String
+    Description: GitHub personal access token
+    NoEcho: true
+    Default: ""
+  # Aurora VPC 信息
+  ExistingVpcId:
+    Type: String
+    Description: Existing VPC ID where Aurora is located
+    Default: "vpc-00202279430b280d8"
+  ExistingSubnet1Id:
+    Type: String
+    Description: Existing Subnet 1 ID for Lambda
+    Default: "subnet-02c04e8c39fa459c7"
+  ExistingSubnet2Id:
+    Type: String
+    Description: Existing Subnet 2 ID for Lambda
+    Default: "subnet-09c6a895e7b8a1edf"
+
+Resources:
+  # Security Group for Lambda (using existing VPC)
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: BlogApiLambdaSG-Existing
+      GroupDescription: Security group for Blog API Lambda function in existing VPC
+      VpcId: !Ref ExistingVpcId
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS outbound for GitHub API
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 172.31.0.0/16
+          Description: PostgreSQL to Aurora
+      Tags:
+        - Key: Name
+          Value: BlogApiLambdaSG-Existing
+
+  BlogApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ./
+      Handler: dist/lambda.handler
+      Timeout: 30
+      MemorySize: 512
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref ExistingSubnet1Id
+          - !Ref ExistingSubnet2Id
+      Environment:
+        Variables:
+          DATABASE_URL: !Ref DatabaseUrl
+          DATABASE_WRITE_URL: !Ref DatabaseWriteUrl
+          DATABASE_READ_URL: !Ref DatabaseReadUrl
+          GITHUB_USERNAME: !Ref GithubUsername
+          GITHUB_TOKEN: !Ref GithubToken
+      Events:
+        BlogApi:
+          Type: Api
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+        BlogApiRoot:
+          Type: Api
+          Properties:
+            Path: /
+            Method: ANY
+
+Outputs:
+  BlogApiUrl:
+    Description: "API Gateway endpoint URL for Blog API"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
+  BlogApiFunction:
+    Description: "Blog API Lambda Function ARN"
+    Value: !GetAtt BlogApiFunction.Arn
+  BlogApiFunctionIamRole:
+    Description: "Implicit IAM Role created for Blog API function"
+    Value: !GetAtt BlogApiFunctionRole.Arn
+  ExistingVpcId:
+    Description: "Existing VPC ID used"
+    Value: !Ref ExistingVpcId
+  ExistingSubnet1Id:
+    Description: "Existing Subnet 1 ID used"
+    Value: !Ref ExistingSubnet1Id
+  ExistingSubnet2Id:
+    Description: "Existing Subnet 2 ID used"
+    Value: !Ref ExistingSubnet2Id
+  LambdaSecurityGroupId:
+    Description: "Lambda Security Group ID"
+    Value: !Ref LambdaSecurityGroup 
